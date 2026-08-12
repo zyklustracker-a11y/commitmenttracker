@@ -122,8 +122,9 @@ input:focus,select:focus{border-color:var(--ink)}
   padding:10px 18px;border-radius:14px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .3s;max-width:88%;text-align:center}
 .toast.show{opacity:1}
 
-/* Login- und Startbildschirm */
-.gate{min-height:80vh;display:flex;align-items:center;justify-content:center;text-align:center}
+/* Login- und Startbildschirm.
+   :not(.hidden), damit das display:flex die .hidden-Regel nicht ueberholt. */
+.gate:not(.hidden){min-height:80vh;display:flex;align-items:center;justify-content:center;text-align:center}
 .gatebox{width:100%;max-width:330px}
 .gatebox h1{margin:0 0 8px}
 .gatebox .sub{margin:0}
