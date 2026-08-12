@@ -1,0 +1,14 @@
+# Firebase CLI
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.firebaserc
+
+# Node (nur falls später Cloud Functions dazukommen)
+node_modules/
+npm-debug.log*
+
+# System
+.DS_Store
+Thumbs.db
