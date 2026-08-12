@@ -13,7 +13,10 @@ import {
   data, startSync, stopSync, saveSettings, saveHabit, removeHabit,
   newHabit, setWriteErrorHandler
 } from "./store.js";
-import { watchAuth, loginWithGoogle, logout, isConfigured, auth } from "./firebase.js";
+import {
+  watchAuth, loginWithGoogle, logout, isConfigured, auth,
+  redirectSettled, redirectPending, clearRedirectPending, redirectError
+} from "./firebase.js";
 
 /* ---------- Icons (inline SVG) ---------- */
 const IC = {
@@ -519,6 +522,14 @@ function showScreen(which){
 }
 function gateError(msg){ el("gateErr").textContent = msg || ""; }
 
+function loginHint(code){
+  if(code==="auth/network-request-failed")
+    return "Keine Verbindung. Für die erste Anmeldung brauchst du einmal Netz.";
+  if(code==="auth/unauthorized-domain")
+    return "Diese Adresse ist in Firebase nicht als autorisierte Domain eingetragen.";
+  return "Anmeldung fehlgeschlagen"+(code?" ("+code+")":"")+". Versuch es noch einmal.";
+}
+
 function initGate(){
   const btn=el("gateBtn");
   if(!isConfigured()){
@@ -533,10 +544,7 @@ function initGate(){
     try{
       await loginWithGoogle();
     }catch(err){
-      const code=(err&&err.code)||"";
-      gateError(code==="auth/network-request-failed"
-        ? "Keine Verbindung. Für die erste Anmeldung brauchst du einmal Netz."
-        : "Anmeldung fehlgeschlagen"+(code?" ("+code+")":"")+". Versuch es noch einmal.");
+      gateError(loginHint((err&&err.code)||""));
     }finally{
       btn.disabled=false;
     }
@@ -561,8 +569,19 @@ function onData(){
 initGate();
 showScreen("boot");
 
+/* Ein abgebrochener Redirect-Login soll nicht stumm auf dem Login-Screen enden. */
+redirectSettled.then(()=>{
+  if(auth.currentUser) return;
+  if(redirectError){ clearRedirectPending(); gateError(loginHint(redirectError)); }
+  else if(redirectPending()){
+    clearRedirectPending();
+    gateError("Die Anmeldung kam nicht in der App an. Tipp noch einmal auf „Mit Google anmelden\" — es öffnet sich jetzt ein Fenster statt einer Weiterleitung.");
+  }
+});
+
 watchAuth(user=>{
   if(user){
+    clearRedirectPending();
     synced=false;
     view={name:"home",id:null};
     startSync(user.uid, onData, n=>{

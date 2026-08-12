@@ -39,12 +39,15 @@ export const db = initializeFirestore(app, {
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
 
-/* iOS meldet eine installierte PWA über navigator.standalone. Dort ist ein
-   Popup unzuverlässig (es öffnet außerhalb der App), deshalb direkt Redirect. */
-const prefersRedirect = () =>
-  window.navigator.standalone === true ||
-  (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+/* Merker fuer einen begonnenen Redirect-Login. Bewusst localStorage: das SDK
+   legt seinen Zwischenstand in sessionStorage ab, und genau der geht verloren,
+   wenn iOS die PWA nach der Rueckkehr von Google neu startet. */
+const REDIRECT_FLAG = "ct_redirect_login";
+export const redirectPending = () => localStorage.getItem(REDIRECT_FLAG) !== null;
+export const clearRedirectPending = () => { try{ localStorage.removeItem(REDIRECT_FLAG); }catch(e){} };
 
+/* Fehler, bei denen ein Popup aussichtslos ist und der Redirect die letzte
+   Chance bleibt. Alles andere wird nach oben gereicht und angezeigt. */
 const REDIRECT_ERRORS = [
   "auth/popup-blocked",
   "auth/popup-closed-by-user",
@@ -53,26 +56,35 @@ const REDIRECT_ERRORS = [
   "auth/web-storage-unsupported"
 ];
 
+/* Popup zuerst — auch in der installierten PWA.
+   Der Redirect ist auf iOS unzuverlaessig: die PWA wird nach der Rueckkehr von
+   Google haeufig neu ab start_url gestartet, damit ist der Zwischenstand fuer
+   getRedirectResult weg. Dazu kommt, dass Safari den Storage-Zugriff auf die
+   authDomain (*.firebaseapp.com) blockiert, weil das eine Fremddomain ist.
+   Deshalb nur noch als Notnagel, wenn das Popup gar nicht erst aufgeht. */
 export async function loginWithGoogle(){
-  if(prefersRedirect()){
-    await signInWithRedirect(auth, provider);
-    return;
-  }
   try{
     await signInWithPopup(auth, provider);
+    clearRedirectPending();
+    return "popup";
   }catch(err){
-    if(REDIRECT_ERRORS.includes(err && err.code)){
-      await signInWithRedirect(auth, provider);
-      return;
-    }
-    throw err;
+    const code = (err && err.code) || "";
+    if(!REDIRECT_ERRORS.includes(code)) throw err;
+    try{ localStorage.setItem(REDIRECT_FLAG, String(Date.now())); }catch(e){}
+    await signInWithRedirect(auth, provider);
+    return "redirect";
   }
 }
 
-/* Ergebnis eines Redirect-Logins einsammeln. Fehler hier sind nicht fatal —
-   onAuthStateChanged entscheidet, ob jemand eingeloggt ist. */
-export const redirectSettled = getRedirectResult(auth).catch(err => {
-  console.warn("Redirect-Login:", err && err.code ? err.code : err);
+/* Ergebnis eines Redirect-Logins einsammeln. Der Fehlercode wird behalten,
+   damit der Login-Screen ihn zeigen kann statt still zurueckzufallen. */
+export let redirectError = null;
+export const redirectSettled = getRedirectResult(auth).then(res => {
+  if(res) clearRedirectPending();
+  return res;
+}).catch(err => {
+  redirectError = (err && err.code) || String(err);
+  console.warn("Redirect-Login:", redirectError);
   return null;
 });
 

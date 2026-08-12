@@ -63,6 +63,20 @@ liefert HTTPS, das ist Voraussetzung für Service Worker und Benachrichtigungen.
 - **iPhone (Safari):** Seite öffnen → Teilen → „Zum Home-Bildschirm". Erst danach
   sind Benachrichtigungen möglich (iOS 16.4+).
 
+### Login in der installierten PWA
+
+Der Login läuft überall über `signInWithPopup`, auch in der installierten App.
+`signInWithRedirect` bleibt nur der Notnagel, falls das Popup gar nicht erst
+aufgeht — verlassen sollte man sich darauf nicht: iOS startet die PWA nach der
+Rückkehr von Google oft neu ab `start_url`, womit der Zwischenstand für
+`getRedirectResult` verloren geht, und Safari blockiert zusätzlich den
+Storage-Zugriff auf die `authDomain`, weil `*.firebaseapp.com` eine Fremddomain
+ist. Der Redirect endet dann still wieder auf dem Login-Screen.
+
+Wer das dauerhaft sauber lösen will, braucht eine eigene Domain als `authDomain`
+(Firebase Hosting oder ein Proxy auf `/__/auth/`) — auf GitHub Pages geht das nicht,
+weil dort nur statische Dateien liegen.
+
 ## Wo liegen die Daten?
 
 In Firestore, unter deinem Google-Konto:
