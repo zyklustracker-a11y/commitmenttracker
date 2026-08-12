@@ -42,12 +42,15 @@ Projekt: **commitmenttracker-385b1**
 
 ## Auf GitHub Pages veröffentlichen
 
-Repository → Settings → Pages → Source **Deploy from a branch**, Branch `main`,
-Ordner `/ (root)`. Nach ein bis zwei Minuten läuft die App unter:
+Läuft bereits — unter Settings → Pages ist als Source **GitHub Actions** eingestellt.
+Der Workflow `.github/workflows/pages.yml` lädt bei jedem Push auf `main` das
+Wurzelverzeichnis hoch und veröffentlicht es. Kein manueller Schritt mehr nötig:
 
 ```
 https://zyklustracker-a11y.github.io/commitmenttracker/
 ```
+
+Den Fortschritt eines Deployments siehst du im Reiter *Actions*.
 
 Alle Pfade in der App sind relativ, der Unterpfad `/commitmenttracker/` ist damit
 kein Problem: `manifest.webmanifest` nutzt `"start_url": "./"` und `"scope": "./"`,
