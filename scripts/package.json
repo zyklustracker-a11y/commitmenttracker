@@ -1,0 +1,9 @@
+{
+  "name": "commitment-tracker-reminders",
+  "private": true,
+  "type": "module",
+  "description": "Versendet die abendliche Push-Erinnerung. Laeuft nur in GitHub Actions, nicht im Browser.",
+  "dependencies": {
+    "firebase-admin": "^13.6.0"
+  }
+}

@@ -1,0 +1,47 @@
+name: Abend-Erinnerung
+
+# Prueft viertelstuendlich, ob fuer jemanden die Erinnerungszeit erreicht ist
+# und heute noch etwas offen ist. Gesendet wird nur dann.
+#
+# GitHub fuehrt geplante Workflows nicht auf die Minute genau aus, unter Last
+# koennen einige Minuten vergehen. Fuer eine Abenderinnerung ist das in Ordnung;
+# wer es punktgenau braucht, nimmt Cloud Scheduler (setzt Blaze voraus).
+#
+# Voraussetzung: Repository-Secret FIREBASE_SERVICE_ACCOUNT mit dem kompletten
+# JSON eines Service-Accounts (Firebase-Konsole -> Projekteinstellungen ->
+# Dienstkonten -> Neuen privaten Schluessel generieren).
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Nur pruefen, nichts senden"
+        type: boolean
+        default: false
+
+# Nie zwei Laeufe gleichzeitig: sonst koennten zwei Prozesse dieselbe
+# Erinnerung verschicken, bevor lastPushed gesetzt ist.
+concurrency:
+  group: reminder
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
+
+      - run: npm install --prefix scripts --no-audit --no-fund
+
+      - name: Erinnerungen versenden
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: node scripts/send-reminders.mjs ${{ inputs.dry_run && '--dry-run' || '' }}

@@ -1,0 +1,159 @@
+"use strict";
+/* ---------------------------------------------------------------------------
+   Abendliche Push-Erinnerung.
+
+   Läuft als geplanter GitHub-Actions-Workflow, nicht im Browser. Prüft für
+   jeden Nutzer, ob seine Erinnerungszeit erreicht ist und heute noch etwas
+   offen ist — und sendet nur dann.
+
+   Zugang über einen Service-Account (GitHub-Secret FIREBASE_SERVICE_ACCOUNT).
+   Das Admin-SDK umgeht die Security Rules; deshalb liest dieses Skript
+   ausschließlich und schreibt nur den Merker lastPushed.
+
+   Aufruf:  node scripts/send-reminders.mjs [--dry-run]
+--------------------------------------------------------------------------- */
+import { initializeApp, cert } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
+import { getMessaging } from "firebase-admin/messaging";
+
+const DRY = process.argv.includes("--dry-run");
+const FALLBACK_TZ = "Europe/Berlin";
+
+const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+if (!raw) {
+  console.error("FIREBASE_SERVICE_ACCOUNT fehlt. Als GitHub-Secret hinterlegen.");
+  process.exit(1);
+}
+let serviceAccount;
+try {
+  serviceAccount = JSON.parse(raw);
+} catch (e) {
+  console.error("FIREBASE_SERVICE_ACCOUNT ist kein gültiges JSON:", e.message);
+  process.exit(1);
+}
+
+initializeApp({ cert: cert(serviceAccount), projectId: serviceAccount.project_id });
+const db = getFirestore();
+const messaging = getMessaging();
+
+/* ---------- Zeit in der Zeitzone des Nutzers ----------
+   Bewusst über Intl statt über eine Bibliothek: Sommerzeit ist damit
+   automatisch richtig, ohne Abhängigkeit. */
+function localNow(timeZone) {
+  const tz = timeZone || FALLBACK_TZ;
+  let parts;
+  try {
+    parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false
+    }).formatToParts(new Date());
+  } catch (e) {
+    console.warn(`  unbekannte Zeitzone "${tz}", nutze ${FALLBACK_TZ}`);
+    return localNow(FALLBACK_TZ);
+  }
+  const g = t => (parts.find(p => p.type === t) || {}).value;
+  const hour = g("hour") === "24" ? "00" : g("hour");
+  return { datum: `${g("year")}-${g("month")}-${g("day")}`, uhrzeit: `${hour}:${g("minute")}` };
+}
+
+/* Wie viele aktive Commitments sind an diesem Tag noch offen? */
+async function offeneCommitments(uid, datum) {
+  const snap = await db.collection("users").doc(uid).collection("habits").get();
+  let offen = 0;
+  snap.forEach(doc => {
+    const h = doc.data() || {};
+    if (h.archived) return;
+    const c = h.completions || {};
+    if (!c[datum]) offen++;
+  });
+  return offen;
+}
+
+function nachricht(offen) {
+  return offen === 1
+    ? "Ein Commitment ist heute noch offen."
+    : `${offen} Commitments sind heute noch offen.`;
+}
+
+const TOTE_TOKEN = new Set([
+  "messaging/registration-token-not-registered",
+  "messaging/invalid-registration-token",
+  "messaging/invalid-argument"
+]);
+
+async function main() {
+  const users = await db.collection("users").get();
+  console.log(`${users.size} Nutzer geprüft${DRY ? " (Probelauf, es wird nichts gesendet)" : ""}`);
+
+  let gesendet = 0, uebersprungen = 0;
+
+  for (const userDoc of users.docs) {
+    const uid = userDoc.id;
+    const u = userDoc.data() || {};
+    const s = u.settings || {};
+
+    if (!s.notify) { uebersprungen++; continue; }
+
+    const { datum, uhrzeit } = localNow(s.timeZone);
+    const ziel = typeof s.reminderTime === "string" ? s.reminderTime : "21:00";
+
+    if (uhrzeit < ziel) { uebersprungen++; continue; }
+    if (u.lastPushed === datum) { uebersprungen++; continue; }
+
+    const offen = await offeneCommitments(uid, datum);
+    if (offen === 0) {
+      console.log(`${uid}: alles erledigt, keine Erinnerung`);
+      // Merker trotzdem setzen, damit spaetere Laeufe heute nicht erneut pruefen.
+      if (!DRY) await userDoc.ref.set({ lastPushed: datum }, { merge: true });
+      continue;
+    }
+
+    const tokenSnap = await db.collection("users").doc(uid).collection("tokens").get();
+    const tokens = tokenSnap.docs.map(d => d.id).filter(Boolean);
+    if (!tokens.length) {
+      console.log(`${uid}: ${offen} offen, aber kein Gerät angemeldet`);
+      uebersprungen++;
+      continue;
+    }
+
+    const body = nachricht(offen);
+    console.log(`${uid}: ${offen} offen, ${tokens.length} Gerät(e), lokal ${datum} ${uhrzeit} (Ziel ${ziel})`);
+    if (DRY) { gesendet++; continue; }
+
+    const res = await messaging.sendEachForMulticast({
+      tokens,
+      notification: { title: "Abend-Check-in", body },
+      webpush: {
+        notification: { title: "Abend-Check-in", body, icon: "icon-192.png", badge: "icon-192.png", tag: "ct-reminder" },
+        fcmOptions: { link: "https://zyklustracker-a11y.github.io/commitmenttracker/" }
+      }
+    });
+
+    // Abgelaufene Token wegräumen, sonst wächst die Liste endlos.
+    const aufraeumen = [];
+    res.responses.forEach((r, i) => {
+      if (r.success) return;
+      const code = (r.error && r.error.code) || "";
+      console.warn(`  Token ${i + 1} fehlgeschlagen: ${code}`);
+      if (TOTE_TOKEN.has(code)) {
+        aufraeumen.push(db.collection("users").doc(uid).collection("tokens").doc(tokens[i]).delete());
+      }
+    });
+    if (aufraeumen.length) {
+      await Promise.all(aufraeumen);
+      console.log(`  ${aufraeumen.length} abgelaufene(s) Token entfernt`);
+    }
+
+    if (res.successCount > 0) {
+      await userDoc.ref.set({ lastPushed: datum }, { merge: true });
+      gesendet++;
+      console.log(`  gesendet an ${res.successCount} von ${tokens.length}`);
+    } else {
+      console.warn("  kein Gerät erreicht, lastPushed bleibt ungesetzt");
+    }
+  }
+
+  console.log(`Fertig: ${gesendet} Erinnerung(en), ${uebersprungen} übersprungen`);
+}
+
+main().catch(err => { console.error(err); process.exit(1); });

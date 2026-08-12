@@ -589,8 +589,20 @@ async function initPush(){
   }catch(e){ console.warn("Messaging-Modul:", e); }
 }
 
+/* Der Versender läuft auf einem Server in UTC und muss wissen, was "21:00"
+   bei dir bedeutet. Wird einmalig hinterlegt und danach nicht mehr angefasst,
+   damit sich zwei Geräte nicht gegenseitig überschreiben. */
+function ensureTimeZone(){
+  if(data.settings.timeZone) return;
+  let tz="";
+  try{ tz=Intl.DateTimeFormat().resolvedOptions().timeZone||""; }catch(e){}
+  if(!tz) return;
+  data.settings.timeZone=tz;
+  saveSettings();
+}
+
 function onData(){
-  if(!synced){ synced=true; showScreen("app"); scheduleReminder(); initPush(); }
+  if(!synced){ synced=true; showScreen("app"); scheduleReminder(); ensureTimeZone(); initPush(); }
   /* Formulare nicht unter den Fingern neu aufbauen. */
   if(view.name==="new"||view.name==="edit") return;
   render();

@@ -141,13 +141,40 @@ eintreffende Nachrichten im `push`-Handler an. Läuft die App gerade, übernimmt
 Bewusst kein zweiter Service Worker: die übliche `firebase-messaging-sw.js` würde
 `sw.js` im selben Scope ablösen. Der `push`-Handler liest die Nutzlast direkt.
 
-**Damit Push funktioniert, fehlen noch zwei Dinge:**
+### Der Versand
 
-- der VAPID-Schlüssel in `firebase-config.js` (siehe Kommentar dort)
-- ein Versender, der abends prüft, ob noch etwas offen ist, und nur dann sendet
+`scripts/send-reminders.mjs` läuft als geplanter GitHub-Actions-Workflow
+(`.github/workflows/reminder.yml`), viertelstündlich. Für jeden Nutzer prüft er:
+Schalter an? Erinnerungszeit in **dessen** Zeitzone erreicht? Heute noch nicht
+erinnert? Noch etwas offen? Nur wenn alles zutrifft, geht eine Nachricht raus.
+Abgelaufene Token werden dabei aufgeräumt.
 
-Ohne beides bleibt die App voll funktionsfähig — es gibt dann nur die Erinnerung
-im Gerät. `enablePush()` scheitert leise und protokolliert den Grund.
+Bewusst über GitHub Actions statt Cloud Functions: das kostet nichts und braucht
+keinen Blaze-Plan. Der Preis dafür ist ungenaues Timing — GitHub führt geplante
+Workflows unter Last einige Minuten später aus. Für eine Abenderinnerung genügt
+das; punktgenau geht nur mit Cloud Scheduler (Blaze).
+
+Schlägt der Versand fehl, bleibt `lastPushed` ungesetzt und der nächste Lauf
+versucht es erneut.
+
+**Einrichtung (einmalig):**
+
+1. Firebase-Konsole → Projekteinstellungen → **Dienstkonten** → „Neuen privaten
+   Schlüssel generieren". Es lädt eine JSON-Datei herunter.
+2. GitHub → Settings → Secrets and variables → Actions → **New repository
+   secret**, Name `FIREBASE_SERVICE_ACCOUNT`, Inhalt: das **komplette JSON**.
+3. VAPID-Schlüssel in `firebase-config.js` eintragen (siehe Kommentar dort).
+
+Der private Schlüssel gehört ausschließlich in das Secret, **niemals** ins
+Repository — das hier ist öffentlich.
+
+Zum Ausprobieren: Actions → „Abend-Erinnerung" → *Run workflow* → Haken bei
+„Nur pruefen, nichts senden". Der Probelauf zeigt in der Ausgabe, wer eine
+Erinnerung bekommen würde, ohne etwas zu senden.
+
+Solange VAPID-Schlüssel oder Secret fehlen, bleibt die App voll funktionsfähig —
+es gibt dann nur die Erinnerung im Gerät. `enablePush()` scheitert leise und
+protokolliert den Grund.
 
 ### Grenzen auf iOS (wichtig, ehrlich)
 
