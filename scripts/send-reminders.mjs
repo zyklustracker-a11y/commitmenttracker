@@ -53,7 +53,18 @@ for (const feld of ["project_id", "client_email", "private_key"]) {
   if (!serviceAccount[feld]) abbruch(`Im FIREBASE_SERVICE_ACCOUNT fehlt das Feld "${feld}".`);
 }
 
-initializeApp({ cert: cert(serviceAccount), projectId: serviceAccount.project_id });
+/* credential, nicht cert — mit dem falschen Schlüssel ignoriert das Admin-SDK
+   den Service-Account stillschweigend und sucht nach Standard-Anmeldedaten. */
+const adminApp = initializeApp({
+  credential: cert(serviceAccount),
+  projectId: serviceAccount.project_id
+});
+
+/* Gegen den Emulator laeuft alles auch ohne gueltige Anmeldung — deshalb hier
+   ausdruecklich pruefen, dass wirklich eine Zugangsberechtigung haengt. */
+if (!adminApp.options.credential) abbruch("Anmeldung am Projekt fehlgeschlagen.");
+console.log(`Projekt ${serviceAccount.project_id}, angemeldet als ${serviceAccount.client_email}`);
+
 const db = getFirestore();
 const messaging = getMessaging();
 
