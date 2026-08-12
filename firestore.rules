@@ -1,0 +1,28 @@
+rules_version = '2';
+
+/*  Commitment Tracker — Zugriffsregeln.
+
+    Grundsatz: Jeder eingeloggte Nutzer kommt ausschließlich an seine eigenen
+    Daten. Alles, was hier nicht ausdrücklich erlaubt wird, ist verboten —
+    Firestore verweigert jeden Pfad ohne passende Regel.
+
+    Deployen:  firebase deploy --only firestore:rules
+*/
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // users/{uid} — Einstellungen und Migrations-Merker
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      // users/{uid}/habits/{habitId} — ein Dokument pro Commitment
+      match /habits/{habitId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+  }
+}
