@@ -1,0 +1,42 @@
+name: Deploy to GitHub Pages
+
+# Statt "Deploy from a branch" laeuft die Veroeffentlichung ueber Actions.
+# Das umgeht das Branch-Dropdown in den Pages-Einstellungen und deployt bei
+# jedem Push auf main automatisch.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Laufende Deployments nicht abwuergen, aber auch nicht parallel fahren.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # enablement: true schaltet Pages per API ein, falls es noch aus ist.
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      # Die App ist statisch: das Repository-Wurzelverzeichnis ist die Seite.
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
