@@ -186,5 +186,15 @@ App ausschließlich über den Schalter in den Einstellungen und nie beim Start.
 
 ## Service Worker aktualisieren
 
-Nach jeder Änderung an den ausgelieferten Dateien die Konstante `CACHE` in `sw.js`
-hochzählen (aktuell `ct-v5`). Sonst holen installierte PWAs das Update nicht.
+Nichts zu tun. Im Repository steht `const CACHE = "ct-dev";`, und der
+Pages-Workflow ersetzt das beim Deployment durch die Commit-Kennung
+(`ct-1d1c1b8` o. Ä.). Jede Änderung bekommt damit automatisch einen frischen
+Cache, und installierte PWAs ziehen das Update.
+
+Verschwindet der Platzhalter aus `sw.js`, bricht das Deployment mit einer
+deutlichen Meldung ab — sonst bliebe die Cache-Version stillschweigend gleich
+und Updates kämen nicht mehr an.
+
+Nebenwirkung: auch ein Commit, der nur diese README ändert, erzeugt eine neue
+Cache-Version und lässt die PWA einmal neu laden. Das ist der Preis dafür, dass
+keine echte Änderung durchrutschen kann.

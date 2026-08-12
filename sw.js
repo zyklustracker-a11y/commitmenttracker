@@ -1,4 +1,8 @@
-const CACHE = "ct-v9";
+// Cache-Version. Beim Deployment ersetzt der Pages-Workflow "ct-dev" durch die
+// Commit-Kennung, damit jede Aenderung automatisch einen frischen Cache bekommt
+// und installierte PWAs das Update ziehen. Von Hand hochzaehlen ist nicht noetig.
+// Lokal bleibt "ct-dev" stehen — das ist so gewollt.
+const CACHE = "ct-dev";
 const ASSETS = [
   "./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png",
   "./app.js", "./store.js", "./dates.js", "./firebase.js", "./firebase-config.js", "./messaging.js",

@@ -28,6 +28,20 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Cache-Version aus dem Commit ableiten, statt sie von Hand hochzuzaehlen.
+      # Vergisst man das, ziehen installierte PWAs das Update nicht — genau der
+      # Fehler, den niemand bemerkt, bis sich jemand ueber alte Daten wundert.
+      - name: Cache-Version setzen
+        run: |
+          set -euo pipefail
+          if ! grep -q 'const CACHE = "ct-dev";' sw.js; then
+            echo "::error::Platzhalter 'ct-dev' steht nicht mehr in sw.js. Ohne ihn bliebe die" \
+                 "Cache-Version bei jedem Deployment gleich und Updates kaemen nicht an."
+            exit 1
+          fi
+          sed -i "s/const CACHE = \"ct-dev\";/const CACHE = \"ct-${GITHUB_SHA:0:7}\";/" sw.js
+          grep -m1 'const CACHE' sw.js
+
       # enablement: true schaltet Pages per API ein, falls es noch aus ist.
       - uses: actions/configure-pages@v5
         with:
