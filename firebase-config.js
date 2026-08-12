@@ -37,7 +37,7 @@ export const isConfigured = () =>
    Ohne diesen Schlüssel bleibt die App voll funktionsfähig; es gibt dann nur
    die Erinnerung im Gerät statt echter Push-Nachrichten.
 --------------------------------------------------------------------------- */
-export const vapidKey = "DEIN-VAPID-KEY";
+export const vapidKey = "BKbyPDQ5XuQs_NbI4ckJFaBlX_MY4eUzLi_Cxr6Spss9YTxACTRsYzCbgqmk1FnC_F4W6EepO8crVVSSBoq8nQY";
 
 export const isPushConfigured = () =>
   typeof vapidKey === "string" && vapidKey.length > 20 && !vapidKey.startsWith("DEIN");
