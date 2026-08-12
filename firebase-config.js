@@ -13,12 +13,12 @@
    Trage sie unten ein und ersetze damit die DEIN-...-Platzhalter.
 --------------------------------------------------------------------------- */
 export const firebaseConfig = {
-  apiKey: "DEIN-API-KEY",
-  authDomain: "DEIN-PROJEKT.firebaseapp.com",
-  projectId: "DEIN-PROJEKT",
-  storageBucket: "DEIN-PROJEKT.firebasestorage.app",
-  messagingSenderId: "DEINE-SENDER-ID",
-  appId: "DEINE-APP-ID"
+  apiKey: "AIzaSyAeQhZmVxSLYSBcGyifBozKDkRURldS9U0",
+  authDomain: "commitmenttracker-385b1.firebaseapp.com",
+  projectId: "commitmenttracker-385b1",
+  storageBucket: "commitmenttracker-385b1.firebasestorage.app",
+  messagingSenderId: "647119632260",
+  appId: "1:647119632260:web:4a03fb880e4a0f059b8fd1"
 };
 
 /* Wird von firebase.js geprüft: solange hier Platzhalter stehen, zeigt der
