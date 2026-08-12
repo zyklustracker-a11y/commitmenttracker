@@ -1,4 +1,4 @@
-const CACHE = "ct-v8";
+const CACHE = "ct-v9";
 const ASSETS = [
   "./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png",
   "./app.js", "./store.js", "./dates.js", "./firebase.js", "./firebase-config.js", "./messaging.js",

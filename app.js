@@ -167,7 +167,9 @@ async function fireReminder(){
   if(!data.settings.notify) return;
   if(data.settings.lastNotified===today()) return;
   const open=openHabitsCount(); if(open===0) return;
-  const body= open===1 ? "Ein Commitment ist heute noch offen." : open+" Commitments sind heute noch offen.";
+  /* Gleicher Wortlaut wie beim Push aus scripts/send-reminders.mjs — für dich
+     ist beides dieselbe Abendmeldung. */
+  const body="Hast du heute deine Commitments eingehalten?";
   try{
     const reg=await navigator.serviceWorker?.getRegistration();
     if(reg) await reg.showNotification("Abend-Check-in",{body, icon:"icon-192.png", badge:"icon-192.png"});

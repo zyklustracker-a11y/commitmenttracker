@@ -102,11 +102,10 @@ async function commitmentStand(uid, datum) {
   return { aktiv, offen };
 }
 
-function nachricht(offen) {
-  return offen === 1
-    ? "Ein Commitment ist heute noch offen."
-    : `${offen} Commitments sind heute noch offen.`;
-}
+/* Wortlaut der Erinnerung. Steht identisch in app.js für die Erinnerung, die
+   das Gerät selbst auslöst — beides ist für dich dieselbe Abendmeldung. */
+const TITEL = "Abend-Check-in";
+const TEXT = "Hast du heute deine Commitments eingehalten?";
 
 const TOTE_TOKEN = new Set([
   "messaging/registration-token-not-registered",
@@ -160,15 +159,14 @@ async function main() {
       continue;
     }
 
-    const body = nachricht(offen);
     console.log(`${uid}: ${offen} von ${aktiv} offen, ${geraete}, lokal ${datum} ${uhrzeit} (Ziel ${ziel})`);
     if (DRY) { gesendet++; continue; }
 
     const res = await messaging.sendEachForMulticast({
       tokens,
-      notification: { title: "Abend-Check-in", body },
+      notification: { title: TITEL, body: TEXT },
       webpush: {
-        notification: { title: "Abend-Check-in", body, icon: "icon-192.png", badge: "icon-192.png", tag: "ct-reminder" },
+        notification: { title: TITEL, body: TEXT, icon: "icon-192.png", badge: "icon-192.png", tag: "ct-reminder" },
         fcmOptions: { link: "https://zyklustracker-a11y.github.io/commitmenttracker/" }
       }
     });
