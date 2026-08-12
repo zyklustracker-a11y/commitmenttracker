@@ -123,13 +123,39 @@ Ein Merker im Nutzerdokument verhindert, dass ein zweiter Start noch einmal migr
 - Habit-Typen „Etwas tun" / „Etwas lassen", Archiv, Sortierung „Offene zuerst"
 - Abendliche Erinnerung über die Notification-API
 
-## Grenzen der Erinnerung (wichtig, ehrlich)
+## Erinnerungen
 
-Die Erinnerung läuft derzeit im Gerät, nicht auf einem Server. Sie feuert zuverlässig,
-wenn die App zur Erinnerungszeit offen ist, und beim nächsten Öffnen nach der
-Erinnerungszeit, falls noch etwas offen ist. Garantierte Push-Nachrichten bei komplett
-geschlossener App brauchen Firebase Cloud Messaging plus eine Cloud Function
-(Scheduler) — das ist der nächste Ausbauschritt und setzt den Blaze-Plan voraus.
+Zwei Wege, die sich ergänzen:
+
+1. **Im Gerät** (`scheduleReminder` in `app.js`) — feuert, wenn die App zur
+   Erinnerungszeit offen ist, und beim nächsten Öffnen danach, falls noch etwas
+   offen ist. Funktioniert ohne Server, aber nicht bei geschlossener App.
+2. **Echtes Push** über Firebase Cloud Messaging — auch bei geschlossener App.
+
+Die Geräteseite für Push ist fertig: `messaging.js` holt beim Einschalten des
+Schalters ein FCM-Token und legt es unter `users/{uid}/tokens/{token}` ab; beim
+Ausschalten wird es dort und bei FCM gelöscht. Der Service Worker zeigt
+eintreffende Nachrichten im `push`-Handler an. Läuft die App gerade, übernimmt
+`onPushWhileOpen` und zeigt einen Toast statt einer Systemmeldung.
+
+Bewusst kein zweiter Service Worker: die übliche `firebase-messaging-sw.js` würde
+`sw.js` im selben Scope ablösen. Der `push`-Handler liest die Nutzlast direkt.
+
+**Damit Push funktioniert, fehlen noch zwei Dinge:**
+
+- der VAPID-Schlüssel in `firebase-config.js` (siehe Kommentar dort)
+- ein Versender, der abends prüft, ob noch etwas offen ist, und nur dann sendet
+
+Ohne beides bleibt die App voll funktionsfähig — es gibt dann nur die Erinnerung
+im Gerät. `enablePush()` scheitert leise und protokolliert den Grund.
+
+### Grenzen auf iOS (wichtig, ehrlich)
+
+Web-Push gibt es auf dem iPhone erst ab **iOS 16.4** und ausschließlich in der über
+„Teilen → Zum Home-Bildschirm" **installierten** PWA. Im normalen Safari-Tab meldet
+`isSupported()` false — das ist kein Fehler, sondern die Plattform. Zusätzlich
+vergibt iOS Push-Berechtigungen nur nach einer echten Nutzergeste, deshalb fragt die
+App ausschließlich über den Schalter in den Einstellungen und nie beim Start.
 
 ## Service Worker aktualisieren
 

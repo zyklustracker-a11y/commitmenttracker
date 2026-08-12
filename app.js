@@ -148,6 +148,19 @@ async function setNotify(on){
     if(p!=="granted"){ toast("Berechtigung nicht erteilt."); data.settings.notify=false; saveSettings(); return render(); }
   }
   data.settings.notify=on; saveSettings(); scheduleReminder(); render();
+
+  /* Echte Push-Nachrichten sind ein Zusatz. Klappt die Anmeldung des Geräts
+     nicht (iOS ohne installierte PWA, fehlender VAPID-Key), bleibt die
+     Erinnerung im Gerät trotzdem aktiv — deshalb nur protokollieren. */
+  try{
+    const m = await import("./messaging.js");
+    if(on){
+      const r = await m.enablePush();
+      if(!r.ok) console.info("Push nicht aktiv:", r.grund, r.fehler || "");
+    }else{
+      await m.disablePush();
+    }
+  }catch(e){ console.warn("Messaging-Modul:", e); }
 }
 function openHabitsCount(){ return active().filter(h=>!h_doneToday(h)).length; }
 async function fireReminder(){
@@ -559,8 +572,25 @@ setWriteErrorHandler(err=>{
   else if(code && code!=="unavailable") console.warn("Firestore:", code, err);
 });
 
+/* Beim Start das Geräte-Token auffrischen (FCM-Token können rotieren) und
+   Nachrichten abfangen, die eintreffen, während die App offen ist.
+   Fragt bewusst nie von sich aus nach der Berechtigung — das passiert nur über
+   den Schalter in den Einstellungen. */
+let pushWired=false;
+async function initPush(){
+  if(pushWired || !data.settings.notify) return;
+  if(!("Notification" in window) || Notification.permission!=="granted") return;
+  pushWired=true;
+  try{
+    const m=await import("./messaging.js");
+    m.onPushWhileOpen((titel,text)=>toast(text||titel));
+    const r=await m.enablePush();
+    if(!r.ok) console.info("Push nicht aktiv:", r.grund, r.fehler || "");
+  }catch(e){ console.warn("Messaging-Modul:", e); }
+}
+
 function onData(){
-  if(!synced){ synced=true; showScreen("app"); scheduleReminder(); }
+  if(!synced){ synced=true; showScreen("app"); scheduleReminder(); initPush(); }
   /* Formulare nicht unter den Fingern neu aufbauen. */
   if(view.name==="new"||view.name==="edit") return;
   render();

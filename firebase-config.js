@@ -25,3 +25,19 @@ export const firebaseConfig = {
    Login-Screen einen verständlichen Hinweis statt eines Firebase-Fehlers. */
 export const isConfigured = () =>
   Object.values(firebaseConfig).every(v => typeof v === "string" && v && !v.startsWith("DEIN"));
+
+/* ---------------------------------------------------------------------------
+   Schlüssel für Web-Push (Cloud Messaging). Ebenfalls nicht geheim — es ist
+   der öffentliche Teil eines VAPID-Schlüsselpaars.
+
+   Firebase-Konsole → Projekteinstellungen → Cloud Messaging →
+   Abschnitt "Web-Konfiguration" → Web Push certificates → "Schlüsselpaar
+   generieren". Der angezeigte Schlüssel gehört hier hinein.
+
+   Ohne diesen Schlüssel bleibt die App voll funktionsfähig; es gibt dann nur
+   die Erinnerung im Gerät statt echter Push-Nachrichten.
+--------------------------------------------------------------------------- */
+export const vapidKey = "DEIN-VAPID-KEY";
+
+export const isPushConfigured = () =>
+  typeof vapidKey === "string" && vapidKey.length > 20 && !vapidKey.startsWith("DEIN");

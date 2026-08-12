@@ -1,8 +1,8 @@
-const CACHE = "ct-v6";
+const CACHE = "ct-v7";
 const ASSETS = [
   "./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png",
-  "./app.js", "./store.js", "./dates.js", "./firebase.js", "./firebase-config.js",
-  "./vendor/firebase-app.js", "./vendor/firebase-auth.js", "./vendor/firebase-firestore.js"
+  "./app.js", "./store.js", "./dates.js", "./firebase.js", "./firebase-config.js", "./messaging.js",
+  "./vendor/firebase-app.js", "./vendor/firebase-auth.js", "./vendor/firebase-firestore.js", "./vendor/firebase-messaging.js"
 ];
 
 self.addEventListener("install", e => {
@@ -34,6 +34,29 @@ self.addEventListener("fetch", e => {
       }).catch(() => e.request.mode === "navigate" ? caches.match("./index.html") : Promise.reject(new Error("offline")))
     )
   );
+});
+
+// Push aus Firebase Cloud Messaging. Bewusst ohne das Messaging-SDK im Worker:
+// ein zweiter Service Worker im selben Scope wuerde diesen hier abloesen, und
+// die Nutzlast laesst sich genauso gut direkt lesen.
+self.addEventListener("push", e => {
+  let title = "Abend-Check-in";
+  let body = "Es ist noch etwas offen.";
+  try {
+    const data = e.data ? e.data.json() : null;
+    const n = (data && (data.notification || data.data)) || {};
+    if (n.title) title = n.title;
+    if (n.body) body = n.body;
+  } catch (err) {
+    if (e.data) { const t = e.data.text(); if (t) body = t; }
+  }
+  e.waitUntil(self.registration.showNotification(title, {
+    body,
+    icon: "icon-192.png",
+    badge: "icon-192.png",
+    tag: "ct-reminder",          // ersetzt eine aeltere Erinnerung, statt zu stapeln
+    renotify: false
+  }));
 });
 
 self.addEventListener("notificationclick", e => {

@@ -23,6 +23,11 @@ service cloud.firestore {
       match /habits/{habitId} {
         allow read, write: if isOwner(userId);
       }
+
+      // users/{uid}/tokens/{token} — Geraete fuer Push-Erinnerungen
+      match /tokens/{tokenId} {
+        allow read, write: if isOwner(userId);
+      }
     }
   }
 }
