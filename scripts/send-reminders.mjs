@@ -19,17 +19,38 @@ import { getMessaging } from "firebase-admin/messaging";
 const DRY = process.argv.includes("--dry-run");
 const FALLBACK_TZ = "Europe/Berlin";
 
-const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
-if (!raw) {
-  console.error("FIREBASE_SERVICE_ACCOUNT fehlt. Als GitHub-Secret hinterlegen.");
+/* Niemals den Inhalt des Secrets ausgeben — auch keinen Ausschnitt.
+   Die Meldung von JSON.parse enthält ein Stück der Eingabe; stünde dort ein
+   fehlerhafter Service-Account, landete privates Schlüsselmaterial im
+   öffentlichen Actions-Log. Deshalb nur beschreiben, was erwartet wird. */
+function abbruch(text) {
+  console.error(text);
+  console.error("Erwartet wird das komplette JSON aus: Firebase-Konsole → " +
+    "Projekteinstellungen → Dienstkonten → \"Neuen privaten Schlüssel generieren\".");
   process.exit(1);
 }
+
+const raw = (process.env.FIREBASE_SERVICE_ACCOUNT || "").trim();
+if (!raw) abbruch("FIREBASE_SERVICE_ACCOUNT fehlt. Als GitHub-Secret hinterlegen.");
+
+if (!raw.startsWith("{")) {
+  // Haeufige Verwechslung: der VAPID-Schluessel ist ein Base64-String mit "B".
+  const vapidVerdacht = /^B[A-Za-z0-9_-]{40,}$/.test(raw);
+  abbruch(vapidVerdacht
+    ? "FIREBASE_SERVICE_ACCOUNT enthält offenbar den VAPID-Schlüssel statt des " +
+      "Service-Accounts. Der VAPID-Schlüssel gehört nicht hierher, sondern in " +
+      "firebase-config.js."
+    : `FIREBASE_SERVICE_ACCOUNT ist kein JSON (beginnt mit "${raw[0]}" statt "{").`);
+}
+
 let serviceAccount;
 try {
   serviceAccount = JSON.parse(raw);
 } catch (e) {
-  console.error("FIREBASE_SERVICE_ACCOUNT ist kein gültiges JSON:", e.message);
-  process.exit(1);
+  abbruch(`FIREBASE_SERVICE_ACCOUNT ist kein gültiges JSON (${raw.length} Zeichen).`);
+}
+for (const feld of ["project_id", "client_email", "private_key"]) {
+  if (!serviceAccount[feld]) abbruch(`Im FIREBASE_SERVICE_ACCOUNT fehlt das Feld "${feld}".`);
 }
 
 initializeApp({ cert: cert(serviceAccount), projectId: serviceAccount.project_id });
