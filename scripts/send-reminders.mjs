@@ -88,17 +88,18 @@ function localNow(timeZone) {
   return { datum: `${g("year")}-${g("month")}-${g("day")}`, uhrzeit: `${hour}:${g("minute")}` };
 }
 
-/* Wie viele aktive Commitments sind an diesem Tag noch offen? */
-async function offeneCommitments(uid, datum) {
+/* Wie viele aktive Commitments gibt es, und wie viele sind noch offen? */
+async function commitmentStand(uid, datum) {
   const snap = await db.collection("users").doc(uid).collection("habits").get();
-  let offen = 0;
+  let aktiv = 0, offen = 0;
   snap.forEach(doc => {
     const h = doc.data() || {};
     if (h.archived) return;
+    aktiv++;
     const c = h.completions || {};
     if (!c[datum]) offen++;
   });
-  return offen;
+  return { aktiv, offen };
 }
 
 function nachricht(offen) {
@@ -132,16 +133,27 @@ async function main() {
     if (uhrzeit < ziel) { uebersprungen++; continue; }
     if (u.lastPushed === datum) { uebersprungen++; continue; }
 
-    const offen = await offeneCommitments(uid, datum);
-    if (offen === 0) {
-      console.log(`${uid}: alles erledigt, keine Erinnerung`);
-      // Merker trotzdem setzen, damit spaetere Laeufe heute nicht erneut pruefen.
-      if (!DRY) await userDoc.ref.set({ lastPushed: datum }, { merge: true });
-      continue;
-    }
+    const { aktiv, offen } = await commitmentStand(uid, datum);
 
+    /* Geräte immer mitlesen, auch wenn nichts offen ist: sonst sieht man im
+       Probelauf nie, ob ueberhaupt ein Geraet angemeldet ist. Das ist ein
+       Lesevorgang pro Nutzer und Lauf — vernachlaessigbar. */
     const tokenSnap = await db.collection("users").doc(uid).collection("tokens").get();
     const tokens = tokenSnap.docs.map(d => d.id).filter(Boolean);
+    const geraete = `${tokens.length} Gerät(e) angemeldet`;
+
+    if (aktiv === 0) {
+      console.log(`${uid}: keine aktiven Commitments, ${geraete}`);
+      uebersprungen++;
+      continue;
+    }
+    if (offen === 0) {
+      console.log(`${uid}: alles erledigt (${aktiv} aktiv), ${geraete} — keine Erinnerung`);
+      // Merker trotzdem setzen, damit spaetere Laeufe heute nicht erneut pruefen.
+      if (!DRY) await userDoc.ref.set({ lastPushed: datum }, { merge: true });
+      uebersprungen++;
+      continue;
+    }
     if (!tokens.length) {
       console.log(`${uid}: ${offen} offen, aber kein Gerät angemeldet`);
       uebersprungen++;
@@ -149,7 +161,7 @@ async function main() {
     }
 
     const body = nachricht(offen);
-    console.log(`${uid}: ${offen} offen, ${tokens.length} Gerät(e), lokal ${datum} ${uhrzeit} (Ziel ${ziel})`);
+    console.log(`${uid}: ${offen} von ${aktiv} offen, ${geraete}, lokal ${datum} ${uhrzeit} (Ziel ${ziel})`);
     if (DRY) { gesendet++; continue; }
 
     const res = await messaging.sendEachForMulticast({
