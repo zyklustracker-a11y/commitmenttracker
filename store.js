@@ -8,6 +8,11 @@
      users/{uid}/habits/{habitId}   → ein Dokument pro Commitment,
                                       completions als Map "YYYY-MM-DD" → "done"|"joker"
 
+   `createdAt` ist der Anlagetag und bleibt unveraendert. `startDate` ist der
+   offizielle Beginn — er darf beim Anlegen und spaeter frei gewaehlt werden.
+   Alles, was zaehlt (Heatmap, Quote, Verlauf, Joker), richtet sich nach
+   startDate; aeltere Dokumente ohne das Feld erben den Anlagetag.
+
    Streaks, Rekorde und Quoten werden nie gespeichert, sondern immer aus
    completions berechnet (siehe app.js).
 --------------------------------------------------------------------------- */
@@ -49,6 +54,7 @@ export function serializeHabit(h){
     type: h.type === "avoid" ? "avoid" : "do",
     targetDays: h.targetDays == null ? null : Number(h.targetDays),
     createdAt: h.createdAt || today(),
+    startDate: h.startDate || h.createdAt || today(),
     archived: !!h.archived,
     archivedAt: h.archivedAt || null,
     sortOrder: Number(h.sortOrder || 0),
@@ -67,9 +73,10 @@ function deserializeHabit(snapDoc){
   return h;
 }
 
-export function newHabit(name, target, type, jokers){
+export function newHabit(name, target, type, jokers, start){
   return { id: Date.now()+Math.floor(Math.random()*1000), name, type: type || "do",
-    targetDays: target, createdAt: today(), archived:false, archivedAt:null,
+    targetDays: target, createdAt: today(), startDate: start || today(),
+    archived:false, archivedAt:null,
     sortOrder: data.habits.length,
     color: COLORS[data.habits.length % COLORS.length],
     jokersPerMonth: (jokers == null ? 1 : jokers),
@@ -147,7 +154,8 @@ export function startSync(_uid, onChange, onMigrated){
 /* ---------- Einmalige Migration der Bestandsdaten ---------- */
 function blankHabit(name, target, type, jokers, index){
   return { id: Date.now() + index, name, type: type || "do",
-    targetDays: target, createdAt: today(), archived:false, archivedAt:null,
+    targetDays: target, createdAt: today(), startDate: today(),
+    archived:false, archivedAt:null,
     sortOrder: index, color: COLORS[index % COLORS.length],
     jokersPerMonth: (jokers == null ? 1 : jokers),
     completions:{}, legacyLongest:0 };
@@ -180,6 +188,10 @@ export function readLegacy(){
         h.legacyLongest = o.longestStreak || 0;
         if(o.lastCompleted && o.currentStreak > 0){
           for(let k=0;k<o.currentStreak;k++) h.completions[addDays(o.lastCompleted,-k)] = "done";
+          /* Der zurueckgerechnete Streak liegt vor dem Anlagetag — der Beginn
+             ist der aelteste Eintrag, sonst blieben diese Tage unsichtbar. */
+          const tage = Object.keys(h.completions).sort();
+          if(tage[0] < h.startDate) h.startDate = tage[0];
         }
         return serializeHabit(h);
       });

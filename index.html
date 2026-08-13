@@ -94,10 +94,12 @@ h1{font-size:22px;font-weight:500;margin:0 0 4px}
 .heatlegend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;font-style:normal}
 
 label.f{display:block;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:18px 0 8px}
-input[type=text],input[type=number],input[type=time],select{
+input[type=text],input[type=number],input[type=time],input[type=date],select{
   width:100%;padding:13px 14px;background:var(--card);border:1px solid var(--line);
   border-radius:2px;color:var(--ink);font-size:16px;outline:none}
 input:focus,select:focus{border-color:var(--ink)}
+/* Date-Input direkt unter einem Segment-Umschalter — gleicher Abstand wie dort. */
+.dateline{margin-top:8px}
 .seg{display:flex;gap:8px}
 .seg button{flex:1;padding:12px;border:1px solid var(--line);background:var(--card);border-radius:2px;
   font-size:14px;color:var(--muted)}

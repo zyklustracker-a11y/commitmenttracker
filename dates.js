@@ -4,6 +4,7 @@ export const dstr = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"
 export const today = () => dstr(new Date());
 export const addDays = (s,n) => { const [y,m,d]=s.split("-").map(Number); const t=new Date(y,m-1,d); t.setDate(t.getDate()+n); return dstr(t); };
 export const yesterday = () => addDays(today(),-1);
+export const tomorrow = () => addDays(today(),1);
 export const daysBetween = (a,b) => { const [y1,m1,d1]=a.split("-").map(Number),[y2,m2,d2]=b.split("-").map(Number);
   return Math.round((new Date(y2,m2-1,d2)-new Date(y1,m1-1,d1))/86400000); };
 export const WD=["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];

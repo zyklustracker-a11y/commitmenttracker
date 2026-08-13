@@ -95,6 +95,10 @@ async function commitmentStand(uid, datum) {
   snap.forEach(doc => {
     const h = doc.data() || {};
     if (h.archived) return;
+    /* Was erst spaeter beginnt, ist heute weder offen noch verpasst.
+       Alte Dokumente ohne startDate erben den Anlagetag. */
+    const start = h.startDate || h.createdAt || "";
+    if (start > datum) return;
     aktiv++;
     const c = h.completions || {};
     if (!c[datum]) offen++;

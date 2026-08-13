@@ -7,7 +7,7 @@
    `completions` berechnet und nie gespeichert.
 --------------------------------------------------------------------------- */
 import {
-  today, yesterday, addDays, daysBetween, fmtLong, fmtShort, fmtEv, greeting
+  today, yesterday, tomorrow, addDays, daysBetween, fmtLong, fmtShort, fmtEv, greeting
 } from "./dates.js";
 import {
   data, startSync, stopSync, saveSettings, saveHabit, removeHabit,
@@ -26,6 +26,14 @@ const IC = {
   back:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>',
 };
 
+/* ---------- Beginn eines Commitments ----------
+   Der offizielle Start ist `startDate`. Er kann in der Zukunft liegen: wer
+   abends ein Commitment eingeht, das er heute schon gebrochen hat, laesst es
+   morgen beginnen — dann ist heute kein offener und kein verpasster Tag.
+   Dokumente aus der Zeit vor diesem Feld erben den Anlagetag. */
+function startOf(h){ return h.startDate || h.createdAt; }
+function notStarted(h){ return startOf(h) > today(); }
+
 /* ---------- Berechnungen (aus Historie) ---------- */
 function currentStreak(h){
   let start = h.completions[today()] ? today() : (h.completions[yesterday()] ? yesterday() : null);
@@ -41,8 +49,9 @@ function longestStreak(h){
   return best;
 }
 function quote(h){
-  const span=daysBetween(h.createdAt,today())+1;
-  const done=Object.keys(h.completions).filter(d=>d<=today()).length;
+  const st=startOf(h);
+  const span=daysBetween(st,today())+1;
+  const done=Object.keys(h.completions).filter(d=>d<=today()&&d>=st).length;
   return span>0 ? Math.round(done/span*100) : 0;
 }
 function streakBroken(h){
@@ -55,13 +64,14 @@ function jokersUsedThisMonth(h){
   return Object.entries(h.completions).filter(([d,v])=>v==="joker"&&d.startsWith(pre)).length;
 }
 function jokerAvailable(h){
-  return !h.completions[yesterday()] && h.createdAt<yesterday()
+  return !h.completions[yesterday()] && startOf(h)<yesterday()
     && jokersUsedThisMonth(h) < (h.jokersPerMonth==null?1:h.jokersPerMonth);
 }
 function goalReached(h){ return h.targetDays && currentStreak(h)>=h.targetDays; }
 function habitEvents(h){
-  const ev=[{d:h.createdAt,t:"start",label:"Gestartet"}];
-  const days=Object.keys(h.completions).sort().filter(x=>x<=today());
+  const st=startOf(h);
+  const ev=[{d:st,t:"start",label:notStarted(h)?"Startet":"Gestartet"}];
+  const days=Object.keys(h.completions).sort().filter(x=>x<=today()&&x>=st);
   const runs=[]; let s=null,p=null;
   for(const d of days){
     if(!(p&&daysBetween(p,d)===1)){ if(s) runs.push({start:s,end:p}); s=d; }
@@ -85,32 +95,40 @@ function habitEvents(h){
   return ev;
 }
 function active(){ return data.habits.filter(h=>!h.archived).sort((a,b)=>{
+  /* Noch nicht gestartete stehen unten — heute ist an ihnen nichts zu tun. */
+  const ap=notStarted(a)?1:0, bp=notStarted(b)?1:0;
+  if(ap!==bp) return ap-bp;
   if(data.settings.openFirst){
     const ad=h_doneToday(a)?1:0, bd=h_doneToday(b)?1:0;
     if(ad!==bd) return ad-bd;
   }
   return a.sortOrder-b.sortOrder; }); }
 function h_doneToday(h){ return !!h.completions[today()]; }
+/* Alles, was heute wirklich zaehlt — ohne die, die erst spaeter beginnen. */
+function running(){ return active().filter(h=>!notStarted(h)); }
 function col(h){ return getComputedStyle(document.documentElement).getPropertyValue(h.color).trim() || "#C05F3C"; }
 function byId(id){ return data.habits.find(x=>x.id===id); }
 
 /* ---------- Aktionen ---------- */
 function toggleToday(id){
   const h=byId(id); if(!h) return;
+  if(notStarted(h)){ toast("Dieses Commitment beginnt erst am "+fmtShort(startOf(h))+"."); return; }
   if(h.completions[today()]) delete h.completions[today()];
   else h.completions[today()]="done";
   saveHabit(h); render();
-  if(active().length && active().every(h_doneToday)) toast("Alles erledigt für heute.");
+  const r=running();
+  if(r.length && r.every(h_doneToday)) toast("Alles erledigt für heute.");
 }
 function toggleYesterday(id){
   const h=byId(id); if(!h) return;
+  if(yesterday()<startOf(h)) return;
   if(h.completions[yesterday()]) delete h.completions[yesterday()];
   else h.completions[yesterday()]="done";
   saveHabit(h); render();
 }
 function toggleDay(id,d){
   const h=byId(id); if(!h) return;
-  if(d>today()||d<h.createdAt) return;
+  if(d>today()||d<startOf(h)) return;
   if(h.completions[d]) delete h.completions[d];
   else h.completions[d]="done";
   saveHabit(h); render();
@@ -162,7 +180,7 @@ async function setNotify(on){
     }
   }catch(e){ console.warn("Messaging-Modul:", e); }
 }
-function openHabitsCount(){ return active().filter(h=>!h_doneToday(h)).length; }
+function openHabitsCount(){ return running().filter(h=>!h_doneToday(h)).length; }
 async function fireReminder(){
   if(!data.settings.notify) return;
   if(data.settings.lastNotified===today()) return;
@@ -197,6 +215,19 @@ function go(name,id){ view={name,id:id??null}; render(); window.scrollTo(0,0); }
 function habitRow(h){
   const s=currentStreak(h), done=h_doneToday(h), broken=streakBroken(h), goal=goalReached(h);
   const c=col(h);
+  if(notStarted(h)){
+    /* Vor dem Start gibt es nichts abzuhaken — der Tag ist weder offen noch
+       verpasst. Deshalb kein aktives Kaestchen und keine Streak-Zahl. */
+    return `<div class="row">
+      <button class="chk" disabled aria-label="Beginnt erst am ${fmtShort(startOf(h))}"></button>
+      <div class="rowmain" data-open="${h.id}">
+        <p class="rowname">${esc(h.name)}<span class="badge">ab ${fmtShort(startOf(h))}</span>${h.type==="avoid"?'<span class="badge">Verzicht</span>':""}</p>
+        <div class="track"><div class="fill" style="width:0%;background:${c}"></div></div>
+        <p class="rowstats">Beginnt ${fmtLong(startOf(h))} — heute zählt noch nicht.</p>
+      </div>
+      <p class="bignum" style="color:var(--faint)" data-open="${h.id}">–</p>
+    </div>`;
+  }
   const prog = h.targetDays ? Math.min(100,Math.round(s/h.targetDays*100)) : (s>0?100:0);
   let stats;
   if(goal) stats=`<span style="color:${c}">Ziel erreicht — ${h.targetDays} Tage geschafft</span>`;
@@ -222,10 +253,12 @@ function habitRow(h){
 /* ---------- Views ---------- */
 function vHome(){
   const list=active();
-  const doneN=list.filter(h_doneToday).length;
+  const run=list.filter(h=>!notStarted(h));
+  const doneN=run.filter(h_doneToday).length;
   const words=["Null","Eins","Zwei","Drei","Vier","Fünf","Sechs","Sieben","Acht","Neun","Zehn"];
   const sub = list.length===0 ? "Noch keine Commitments"
-    : `${words[doneN]??doneN} von ${words[list.length]?.toLowerCase()??list.length} geschafft`;
+    : run.length===0 ? "Heute nichts zu tun — alles startet später"
+    : `${words[doneN]??doneN} von ${words[run.length]?.toLowerCase()??run.length} geschafft`;
   return `
   <div class="headrow">
     <div>
@@ -241,7 +274,7 @@ function vHome(){
   ${list.length===0
     ? `<div class="empty" style="border-top:1px solid var(--line)">Noch keine Commitments.<br>Geh unten dein erstes ein.</div>`
     : list.map(habitRow).join("")}
-  ${list.length&&doneN===list.length?`<div class="allDone">Alles erledigt für heute. Bis morgen.</div>`:""}
+  ${run.length&&doneN===run.length?`<div class="allDone">Alles erledigt für heute. Bis morgen.</div>`:""}
   <div class="topline"></div>
   <button class="cta" data-go="new">Neues Commitment eingehen</button>`;
 }
@@ -256,11 +289,13 @@ function sparkline(h,color){
 }
 function vAnalyse(){
   const list=active();
-  const doneN=list.filter(h_doneToday).length;
+  /* Der Tagesring und die Quote zeigen nur, was heute schon laeuft. */
+  const run=list.filter(h=>!notStarted(h));
+  const doneN=run.filter(h_doneToday).length;
   const total=data.habits.reduce((a,h)=>a+Object.keys(h.completions).length,0);
   const best=data.habits.length?Math.max(...data.habits.map(longestStreak)):0;
-  const q=list.length?Math.round(list.reduce((a,h)=>a+quote(h),0)/list.length):0;
-  const frac=list.length?doneN/list.length:0;
+  const q=run.length?Math.round(run.reduce((a,h)=>a+quote(h),0)/run.length):0;
+  const frac=run.length?doneN/run.length:0;
   const dash=(frac*226).toFixed(0)+" 226";
   return `
   <div class="headrow" style="align-items:center;margin-bottom:18px">
@@ -274,12 +309,12 @@ function vAnalyse(){
       <circle cx="43" cy="43" r="36" fill="none" stroke="#EADFD2" stroke-width="9"/>
       <circle cx="43" cy="43" r="36" fill="none" stroke="var(--terra)" stroke-width="9" stroke-linecap="round"
         stroke-dasharray="${dash}" transform="rotate(-90 43 43)"/>
-      <text x="43" y="41" text-anchor="middle" font-size="19" font-weight="500" fill="var(--ink)">${doneN}/${list.length}</text>
+      <text x="43" y="41" text-anchor="middle" font-size="19" font-weight="500" fill="var(--ink)">${doneN}/${run.length}</text>
       <text x="43" y="56" text-anchor="middle" font-size="10" fill="var(--muted)">heute</text>
     </svg>
     <div style="flex:1">
       <p style="font-size:14px;font-weight:500;margin:0 0 4px">Heutiger Fortschritt</p>
-      <p class="sub" style="font-size:12px">${doneN===list.length&&list.length?"Alles erledigt.":(list.length-doneN)+" noch offen"+(data.settings.notify?" — Erinnerung um "+data.settings.reminderTime:"")}</p>
+      <p class="sub" style="font-size:12px">${run.length===0?"Heute läuft noch nichts.":doneN===run.length?"Alles erledigt.":(run.length-doneN)+" noch offen"+(data.settings.notify?" — Erinnerung um "+data.settings.reminderTime:"")}</p>
     </div>
   </div>
   <div class="tiles">
@@ -290,7 +325,7 @@ function vAnalyse(){
   ${list.map(h=>{const c=col(h);const evs=habitEvents(h);return `
     <div class="card">
       <div class="cardhead" data-open="${h.id}"><p>${esc(h.name)}</p>
-        <span style="color:${c}">${currentStreak(h)} · ${quote(h)} %</span></div>
+        <span style="color:${notStarted(h)?"var(--muted)":c}">${notStarted(h)?"ab "+fmtShort(startOf(h)):currentStreak(h)+" · "+quote(h)+" %"}</span></div>
       <div data-open="${h.id}">${sparkline(h,c)}</div>
       <details class="tl">
         <summary>Verlauf (${evs.length})</summary>
@@ -304,12 +339,16 @@ function vAnalyse(){
 }
 
 function heatmap(h){
+  /* Vor dem Start gibt es weder erledigte noch verpasste Tage — ein leeres
+     Raster samt Legende wäre nur Platzhalter. */
+  if(notStarted(h))
+    return `<p class="note" style="text-align:center;margin:18px 0 4px">Ab dem Starttag füllt sich hier dein Verlauf — 16 Wochen auf einen Blick.</p>`;
   const weeks=16, c=col(h);
   const startMon=addDays(today(),-(((new Date().getDay()+6)%7)) - (weeks-1)*7);
   let cells="";
   for(let w=0;w<weeks;w++) for(let r=0;r<7;r++){
     const d=addDays(startMon,w*7+r);
-    if(d>today()||d<h.createdAt){ cells+='<span class="off"></span>'; continue; }
+    if(d>today()||d<startOf(h)){ cells+='<span class="off"></span>'; continue; }
     const v=h.completions[d];
     if(v==="joker") cells+=`<span class="joker" data-d="${d}" title="${d} · Joker"></span>`;
     else if(v) cells+=`<span style="background:${c}" data-d="${d}" title="${d}"></span>`;
@@ -325,16 +364,19 @@ function vDetail(){
   const h=byId(view.id);
   if(!h) return vHome();
   const s=currentStreak(h), c=col(h), goal=goalReached(h), broken=streakBroken(h);
+  const st=startOf(h), pending=notStarted(h);
   return `
   <div class="headrow" style="align-items:center;margin-bottom:6px">
     <div style="display:flex;align-items:center;gap:12px">
       <button class="backbtn" data-go="home" aria-label="Zurück">${IC.back}</button>
       <div><h1 style="font-size:18px">${esc(h.name)}</h1>
-      <p class="sub" style="font-size:12px">${h.type==="avoid"?"Verzicht":"Gewohnheit"} · seit ${fmtShort(h.createdAt)}${h.archived?" · archiviert":""}</p></div>
+      <p class="sub" style="font-size:12px">${h.type==="avoid"?"Verzicht":"Gewohnheit"} · ${pending?"ab":"seit"} ${fmtShort(st)}${h.archived?" · archiviert":""}</p></div>
     </div>
   </div>
-  <p class="hero" style="color:${c}">${s}</p>
-  <p class="herosub">${h.targetDays?`Tag ${s} von ${h.targetDays}`:"Tage in Folge (unbegrenzt)"}${broken?' · <span style="color:var(--danger)">Streak gebrochen</span>':""}</p>
+  <p class="hero" style="color:${pending?"var(--faint)":c}">${pending?"–":s}</p>
+  <p class="herosub">${pending
+    ? `Beginnt ${fmtLong(st)} — Tag 1 ist dann dran`
+    : `${h.targetDays?`Tag ${s} von ${h.targetDays}`:"Tage in Folge (unbegrenzt)"}${broken?' · <span style="color:var(--danger)">Streak gebrochen</span>':""}`}</p>
   ${goal?`<div class="allDone" style="margin:0 0 16px">Ziel erreicht — ${h.targetDays} Tage durchgezogen. Stark.</div>
     <div class="actions2"><button class="cta" style="margin-top:0" data-continue="${h.id}">Unbegrenzt weiter</button>
     <button class="cta filled" style="margin-top:0" data-archive="${h.id}">Ins Archiv</button></div>
@@ -346,12 +388,49 @@ function vDetail(){
     <div class="tile"><p class="tlabel">Gesamt</p><p class="tval">${Object.keys(h.completions).length}</p></div>
   </div>
   ${!h.archived?`
-    <button class="cta soft" data-edit="${h.id}">Bearbeiten (Name, Ziel, Art)</button>
-    <button class="cta soft" data-yday="${h.id}">${h.completions[yesterday()]?"Eintrag für gestern entfernen":"Gestern nachtragen"}</button>
+    <button class="cta soft" data-edit="${h.id}">Bearbeiten (Name, Start, Ziel, Art)</button>
+    ${yesterday()>=st?`<button class="cta soft" data-yday="${h.id}">${h.completions[yesterday()]?"Eintrag für gestern entfernen":"Gestern nachtragen"}</button>`:""}
     ${jokerAvailable(h)?`<button class="cta soft" data-joker="${h.id}">Joker für gestern einsetzen (${(h.jokersPerMonth==null?1:h.jokersPerMonth)-jokersUsedThisMonth(h)} übrig)</button>`:""}
     ${!goal?`<button class="cta soft" data-archive="${h.id}">Ins Archiv verschieben</button>`:""}`
   :`<button class="cta" data-restore-d="${h.id}">Wieder aktivieren</button>`}
   <button class="cta dangerline" data-del="${h.id}">Commitment löschen</button>`;
+}
+
+/* ---------- Startdatum-Auswahl (Neu + Bearbeiten) ----------
+   Segment-Umschalter wie bei „Etwas tun / Etwas lassen"; das Date-Feld
+   erscheint nur unter „Datum wählen". `p` ist das Id-Präfix des Formulars. */
+const isDay = s => /^\d{4}-\d{2}-\d{2}$/.test(s||"");
+function startNote(d){
+  if(d===today()) return "Läuft ab heute — heute ist Tag 1.";
+  if(d>today()) return "Läuft ab "+fmtLong(d)+" — bis dahin zählt kein Tag, auch heute nicht.";
+  return "Läuft rückwirkend ab "+fmtLong(d)+" — die Tage davor zählen nicht.";
+}
+function startPicker(p, val){
+  const mode = val===today() ? 0 : val===tomorrow() ? 1 : 2;
+  const btn = (i,txt) => `<button type="button" data-start="${i}" class="${mode===i?"on":""}">${txt}</button>`;
+  return `
+  <label class="f">Start</label>
+  <div class="seg" id="${p}Seg">${btn(0,"Heute")}${btn(1,"Morgen")}${btn(2,"Datum wählen")}</div>
+  <input type="date" class="dateline ${mode===2?"":"hidden"}" id="${p}Date" value="${val}"
+    aria-label="Startdatum">
+  <p class="note" id="${p}Note">${startNote(val)}</p>`;
+}
+/* Gibt eine Funktion zurück, die beim Absenden das gewählte Datum liefert
+   ("" wenn im Datumsmodus nichts gewählt wurde). */
+function bindStartPicker(app, p, val){
+  const seg=app.querySelector("#"+p+"Seg"), inp=app.querySelector("#"+p+"Date"),
+        note=app.querySelector("#"+p+"Note");
+  const pick=()=> inp.classList.contains("hidden") ? val : inp.value;
+  const show=()=>{ note.textContent = pick() ? startNote(pick()) : "Wähle ein Datum."; };
+  seg.querySelectorAll("button").forEach(b=>b.onclick=()=>{
+    const m=+b.dataset.start;
+    seg.querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
+    inp.classList.toggle("hidden", m!==2);
+    if(m<2){ val = m===0 ? today() : tomorrow(); inp.value=val; }
+    show();
+  });
+  inp.onchange=show;
+  return pick;
 }
 
 function vNew(){
@@ -369,6 +448,7 @@ function vNew(){
     <button type="button" id="tDo" class="on">Etwas tun</button>
     <button type="button" id="tAvoid">Etwas lassen</button>
   </div>
+  ${startPicker("n", today())}
   <label class="f" for="nDays">Ziel in Tagen</label>
   <input type="number" id="nDays" min="1" max="3650" step="1" value="30" inputmode="numeric">
   <div class="inline"><input type="checkbox" id="nUnl"><label for="nUnl">Unbegrenzt — ohne festes Ziel</label></div>
@@ -396,12 +476,13 @@ function vEdit(){
     <button type="button" id="eDo" class="${h.type!=="avoid"?"on":""}">Etwas tun</button>
     <button type="button" id="eAvoid" class="${h.type==="avoid"?"on":""}">Etwas lassen</button>
   </div>
+  ${startPicker("e", startOf(h))}
   <label class="f" for="eDays">Ziel in Tagen</label>
   <input type="number" id="eDays" min="1" max="3650" step="1" value="${h.targetDays||30}" inputmode="numeric" ${h.targetDays?"":"disabled"}>
   <div class="inline"><input type="checkbox" id="eUnl" ${h.targetDays?"":"checked"}><label for="eUnl">Unbegrenzt — ohne festes Ziel</label></div>
   <label class="f" for="eJokers">Joker pro Monat für dieses Commitment</label>
   <select id="eJokers">${[0,1,2,3].map(n=>`<option value="${n}" ${(h.jokersPerMonth==null?1:h.jokersPerMonth)===n?"selected":""}>${n===0?"0 — keine Gnade":n}</option>`).join("")}</select>
-  <p class="note">Die Historie bleibt beim Bearbeiten vollständig erhalten.</p>
+  <p class="note">Die Historie bleibt erhalten. Nur wenn du den Start nach hinten schiebst, fallen Einträge davor weg — danach wird gefragt.</p>
   <button class="cta filled" id="eSubmit">Änderungen speichern</button>
   <p class="note" id="eErr" style="color:var(--danger)"></p>`;
 }
@@ -476,6 +557,7 @@ function bind(app){
     eAv.onclick=()=>{type="avoid";eAv.classList.add("on");eDo.classList.remove("on");};
     const unl=app.querySelector("#eUnl"), days=app.querySelector("#eDays");
     unl.onchange=()=>{days.disabled=unl.checked;};
+    const pickStart=bindStartPicker(app,"e",startOf(byId(view.id)||{startDate:today()}));
     app.querySelector("#eSubmit").onclick=()=>{
       /* Frisch nachschlagen: ein Sync aus der Cloud kann das Objekt zwischen
          Rendern und Speichern ersetzt haben. */
@@ -484,14 +566,28 @@ function bind(app){
       if(!h){ err.textContent="Dieses Commitment gibt es nicht mehr."; return; }
       const name=app.querySelector("#eName").value.trim();
       if(!name){ err.textContent="Der Name darf nicht leer sein."; return; }
+      const start=pickStart();
+      if(!isDay(start)){ err.textContent="Wähle ein Startdatum."; return; }
       let target=null;
       if(!unl.checked){
         target=parseInt(days.value,10);
         if(!target||target<1){ err.textContent="Gib eine Zieldauer von mindestens einem Tag ein."; return; }
       }
-      h.name=name; h.type=type; h.targetDays=target; h.jokersPerMonth=+app.querySelector("#eJokers").value;
+      /* Ein späterer Start macht frühere Einträge gegenstandslos. Sie
+         verschwinden nicht heimlich — sonst stünde in der Heatmap etwas
+         anderes als in der Quote. */
+      const vorher=Object.keys(h.completions).filter(d=>d<start);
+      if(vorher.length){
+        const satz = vorher.length===1
+          ? "Ein Eintrag liegt vor dem "+fmtShort(start)+" und wird gelöscht."
+          : vorher.length+" Einträge liegen vor dem "+fmtShort(start)+" und werden gelöscht.";
+        if(!confirm(satz+"\n\nTrotzdem speichern?")) return;
+      }
+      vorher.forEach(d=>delete h.completions[d]);
+      h.name=name; h.type=type; h.targetDays=target; h.startDate=start;
+      h.jokersPerMonth=+app.querySelector("#eJokers").value;
       saveHabit(h); go("detail",h.id);
-      toast("Änderungen gespeichert.");
+      toast(start>today() ? "Gespeichert — beginnt am "+fmtShort(start)+"." : "Änderungen gespeichert.");
     };
   }
 
@@ -502,18 +598,22 @@ function bind(app){
     tAv.onclick=()=>{type="avoid";tAv.classList.add("on");tDo.classList.remove("on");};
     const unl=app.querySelector("#nUnl"), days=app.querySelector("#nDays");
     unl.onchange=()=>{days.disabled=unl.checked;};
+    const pickStart=bindStartPicker(app,"n",today());
     app.querySelector("#nSubmit").onclick=()=>{
       const name=app.querySelector("#nName").value.trim();
       const err=app.querySelector("#nErr");
       if(!name){ err.textContent="Gib deinem Commitment einen Namen."; return; }
+      const start=pickStart();
+      if(!isDay(start)){ err.textContent="Wähle ein Startdatum."; return; }
       let target=null;
       if(!unl.checked){
         target=parseInt(days.value,10);
         if(!target||target<1){ err.textContent="Gib eine Zieldauer von mindestens einem Tag ein."; return; }
       }
-      const h=newHabit(name,target,type,+app.querySelector("#nJokers").value);
+      const h=newHabit(name,target,type,+app.querySelector("#nJokers").value,start);
       data.habits.push(h); saveHabit(h); go("home");
-      toast("Commitment eingegangen. Los geht's.");
+      toast(start>today() ? "Commitment eingegangen — es beginnt am "+fmtShort(start)+"."
+                          : "Commitment eingegangen. Los geht's.");
     };
     app.querySelector("#nName").focus();
   }

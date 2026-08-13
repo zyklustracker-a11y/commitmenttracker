@@ -91,6 +91,11 @@ Streaks, Rekorde, Quoten und der Verlauf werden **nie gespeichert**, sondern imm
 aus `completions` berechnet. Dadurch gibt es keinen Tageswechsel-Bug, und Abhaken
 lässt sich sauber rückgängig machen.
 
+`createdAt` ist der Anlagetag und bleibt unverändert. Der **offizielle Beginn** steht
+in `startDate` und ist frei wählbar — beim Anlegen und später über „Bearbeiten".
+Alles, was zählt (Heatmap, Quote, Verlauf, Joker, Erinnerung), richtet sich nach
+`startDate`; Dokumente aus der Zeit davor erben den Anlagetag.
+
 Die Security Rules erlauben ausschließlich `request.auth.uid == userId`. Alles andere
 ist verboten, weil Firestore jeden Pfad ohne passende Regel abweist.
 
@@ -113,6 +118,9 @@ Ein Merker im Nutzerdokument verhindert, dass ein zweiter Start noch einmal migr
 
 ## Was die App kann
 
+- Startdatum frei wählbar: Heute, Morgen oder ein Datum — wer abends etwas eingeht,
+  das er heute schon gebrochen hat, lässt es morgen beginnen; heute ist dann weder
+  offen noch verpasst. Nachträglich änderbar.
 - Freie Zieldauer in Tagen oder unbegrenzt; „Ziel erreicht"-Zustand mit
   Weiterführen/Archivieren
 - Historien-Datenmodell, Streaks werden berechnet
