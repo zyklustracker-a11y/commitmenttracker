@@ -121,6 +121,10 @@ Ein Merker im Nutzerdokument verhindert, dass ein zweiter Start noch einmal migr
 - Startdatum frei wählbar: Heute, Morgen oder ein Datum — wer abends etwas eingeht,
   das er heute schon gebrochen hat, lässt es morgen beginnen; heute ist dann weder
   offen noch verpasst. Nachträglich änderbar.
+- Rückwirkender Start trägt die Tage bis gestern gleich als erledigt ein, sodass
+  Streak, Rekord und Quote sofort stimmen („seit fünf Tagen dabei" → Tag 5). Heute
+  bleibt offen zum Abhaken, das Nachtragen lässt sich abwählen, und Lücken innerhalb
+  der bisherigen Laufzeit bleiben Lücken.
 - Freie Zieldauer in Tagen oder unbegrenzt; „Ziel erreicht"-Zustand mit
   Weiterführen/Archivieren
 - Historien-Datenmodell, Streaks werden berechnet

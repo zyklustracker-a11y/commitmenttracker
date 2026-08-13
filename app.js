@@ -34,6 +34,16 @@ const IC = {
 function startOf(h){ return h.startDate || h.createdAt; }
 function notStarted(h){ return startOf(h) > today(); }
 
+/* Rückwirkender Start: die Tage von `from` bis `to` gelten als erledigt.
+   Heute bleibt bewusst offen — der Tag ist noch nicht vorbei und wird wie
+   gewohnt abgehakt. Vorhandene Einträge (auch Joker) bleiben unangetastet. */
+function emptyDays(h,from,to){ let n=0;
+  for(let d=from; d<=to; d=addDays(d,1)) if(!h.completions[d]) n++;
+  return n; }
+function fillDone(h,from,to){ let n=0;
+  for(let d=from; d<=to; d=addDays(d,1)) if(!h.completions[d]){ h.completions[d]="done"; n++; }
+  return n; }
+
 /* ---------- Berechnungen (aus Historie) ---------- */
 function currentStreak(h){
   let start = h.completions[today()] ? today() : (h.completions[yesterday()] ? yesterday() : null);
@@ -400,6 +410,11 @@ function vDetail(){
    Segment-Umschalter wie bei „Etwas tun / Etwas lassen"; das Date-Feld
    erscheint nur unter „Datum wählen". `p` ist das Id-Präfix des Formulars. */
 const isDay = s => /^\d{4}-\d{2}-\d{2}$/.test(s||"");
+/* Grenzen für das Date-Feld: zehn Jahre in beide Richtungen. Ohne Grenze
+   ließe ein Vertipper („0202") Tausende von Tagen nachtragen. */
+const minStart = () => addDays(today(),-3650);
+const maxStart = () => addDays(today(),3650);
+function inStartRange(d){ return isDay(d) && d>=minStart() && d<=maxStart(); }
 function startNote(d){
   if(d===today()) return "Läuft ab heute — heute ist Tag 1.";
   if(d>today()) return "Läuft ab "+fmtLong(d)+" — bis dahin zählt kein Tag, auch heute nicht.";
@@ -412,16 +427,31 @@ function startPicker(p, val){
   <label class="f">Start</label>
   <div class="seg" id="${p}Seg">${btn(0,"Heute")}${btn(1,"Morgen")}${btn(2,"Datum wählen")}</div>
   <input type="date" class="dateline ${mode===2?"":"hidden"}" id="${p}Date" value="${val}"
-    aria-label="Startdatum">
-  <p class="note" id="${p}Note">${startNote(val)}</p>`;
+    min="${minStart()}" max="${maxStart()}" aria-label="Startdatum">
+  <p class="note" id="${p}Note">${startNote(val)}</p>
+  <div class="inline hidden" id="${p}FillRow">
+    <input type="checkbox" id="${p}Fill" checked><label for="${p}Fill" id="${p}FillLabel"></label>
+  </div>`;
 }
-/* Gibt eine Funktion zurück, die beim Absenden das gewählte Datum liefert
-   ("" wenn im Datumsmodus nichts gewählt wurde). */
-function bindStartPicker(app, p, val){
+/* Bindet die Auswahl und gibt zwei Abfragen zurück: `pick()` liefert das
+   gewählte Datum ("" wenn im Datumsmodus keines gesetzt ist), `wantFill()`
+   sagt, ob die vergangenen Tage als erledigt eingetragen werden sollen.
+
+   `fill(datum)` ist optional und liefert {n, text} für das Kästchen — n=0
+   blendet es aus. Damit entscheidet jedes Formular selbst, welche Tage es
+   anbietet: beim Anlegen alle, beim Bearbeiten nur die neu dazugekommenen. */
+function bindStartPicker(app, p, val, fill){
   const seg=app.querySelector("#"+p+"Seg"), inp=app.querySelector("#"+p+"Date"),
-        note=app.querySelector("#"+p+"Note");
+        note=app.querySelector("#"+p+"Note"), row=app.querySelector("#"+p+"FillRow"),
+        box=app.querySelector("#"+p+"Fill"), lab=app.querySelector("#"+p+"FillLabel");
   const pick=()=> inp.classList.contains("hidden") ? val : inp.value;
-  const show=()=>{ note.textContent = pick() ? startNote(pick()) : "Wähle ein Datum."; };
+  const show=()=>{
+    const d=pick();
+    note.textContent = isDay(d) ? startNote(d) : "Wähle ein Datum.";
+    const f = (fill && inStartRange(d)) ? fill(d) : null;
+    row.classList.toggle("hidden", !f || !f.n);
+    if(f && f.n) lab.textContent=f.text;
+  };
   seg.querySelectorAll("button").forEach(b=>b.onclick=()=>{
     const m=+b.dataset.start;
     seg.querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
@@ -430,7 +460,8 @@ function bindStartPicker(app, p, val){
     show();
   });
   inp.onchange=show;
-  return pick;
+  show();
+  return { pick, wantFill: () => !row.classList.contains("hidden") && box.checked };
 }
 
 function vNew(){
@@ -557,7 +588,17 @@ function bind(app){
     eAv.onclick=()=>{type="avoid";eAv.classList.add("on");eDo.classList.remove("on");};
     const unl=app.querySelector("#eUnl"), days=app.querySelector("#eDays");
     unl.onchange=()=>{days.disabled=unl.checked;};
-    const pickStart=bindStartPicker(app,"e",startOf(byId(view.id)||{startDate:today()}));
+    /* Beim Bearbeiten werden nur die Tage angeboten, die durch einen früheren
+       Start neu dazukommen — was innerhalb der bisherigen Laufzeit leer blieb,
+       ist eine bewusste Lücke und bleibt es. */
+    const alt=startOf(byId(view.id)||{startDate:today()});
+    const bisZu=(addDays(alt,-1)<yesterday()) ? addDays(alt,-1) : yesterday();
+    const st=bindStartPicker(app,"e",alt,d=>{
+      const h=byId(view.id); if(!h||d>=alt) return {n:0};
+      const n=emptyDays(h,d,bisZu);
+      return { n, text: n===1 ? "Den "+fmtShort(d)+" als erledigt eintragen"
+                              : "Die "+n+" Tage ab "+fmtShort(d)+" als erledigt eintragen" };
+    });
     app.querySelector("#eSubmit").onclick=()=>{
       /* Frisch nachschlagen: ein Sync aus der Cloud kann das Objekt zwischen
          Rendern und Speichern ersetzt haben. */
@@ -566,8 +607,9 @@ function bind(app){
       if(!h){ err.textContent="Dieses Commitment gibt es nicht mehr."; return; }
       const name=app.querySelector("#eName").value.trim();
       if(!name){ err.textContent="Der Name darf nicht leer sein."; return; }
-      const start=pickStart();
+      const start=st.pick();
       if(!isDay(start)){ err.textContent="Wähle ein Startdatum."; return; }
+      if(!inStartRange(start)){ err.textContent="Wähle ein Datum innerhalb der nächsten oder letzten zehn Jahre."; return; }
       let target=null;
       if(!unl.checked){
         target=parseInt(days.value,10);
@@ -584,10 +626,12 @@ function bind(app){
         if(!confirm(satz+"\n\nTrotzdem speichern?")) return;
       }
       vorher.forEach(d=>delete h.completions[d]);
+      const n=st.wantFill() ? fillDone(h,start,bisZu) : 0;
       h.name=name; h.type=type; h.targetDays=target; h.startDate=start;
       h.jokersPerMonth=+app.querySelector("#eJokers").value;
       saveHabit(h); go("detail",h.id);
-      toast(start>today() ? "Gespeichert — beginnt am "+fmtShort(start)+"." : "Änderungen gespeichert.");
+      toast(n ? n+" Tage nachgetragen — du bist bei Tag "+currentStreak(h)+"."
+        : start>today() ? "Gespeichert — beginnt am "+fmtShort(start)+"." : "Änderungen gespeichert.");
     };
   }
 
@@ -598,22 +642,32 @@ function bind(app){
     tAv.onclick=()=>{type="avoid";tAv.classList.add("on");tDo.classList.remove("on");};
     const unl=app.querySelector("#nUnl"), days=app.querySelector("#nDays");
     unl.onchange=()=>{days.disabled=unl.checked;};
-    const pickStart=bindStartPicker(app,"n",today());
+    /* Beim Anlegen ist die Historie leer: angeboten werden alle Tage vom
+       Startdatum bis gestern. */
+    const st=bindStartPicker(app,"n",today(),d=>{
+      /* In der Zukunft gibt es nichts nachzutragen — daysBetween wäre negativ. */
+      const n=Math.max(0,daysBetween(d,today()));
+      return { n, text: n===1 ? "Den "+fmtShort(d)+" als erledigt eintragen"
+                              : "Die "+n+" Tage ab "+fmtShort(d)+" als erledigt eintragen" };
+    });
     app.querySelector("#nSubmit").onclick=()=>{
       const name=app.querySelector("#nName").value.trim();
       const err=app.querySelector("#nErr");
       if(!name){ err.textContent="Gib deinem Commitment einen Namen."; return; }
-      const start=pickStart();
+      const start=st.pick();
       if(!isDay(start)){ err.textContent="Wähle ein Startdatum."; return; }
+      if(!inStartRange(start)){ err.textContent="Wähle ein Datum innerhalb der nächsten oder letzten zehn Jahre."; return; }
       let target=null;
       if(!unl.checked){
         target=parseInt(days.value,10);
         if(!target||target<1){ err.textContent="Gib eine Zieldauer von mindestens einem Tag ein."; return; }
       }
       const h=newHabit(name,target,type,+app.querySelector("#nJokers").value,start);
+      const n=st.wantFill() ? fillDone(h,start,yesterday()) : 0;
       data.habits.push(h); saveHabit(h); go("home");
-      toast(start>today() ? "Commitment eingegangen — es beginnt am "+fmtShort(start)+"."
-                          : "Commitment eingegangen. Los geht's.");
+      toast(n ? "Commitment eingegangen — "+n+" Tage nachgetragen, du bist bei Tag "+currentStreak(h)+"."
+        : start>today() ? "Commitment eingegangen — es beginnt am "+fmtShort(start)+"."
+        : "Commitment eingegangen. Los geht's.");
     };
     app.querySelector("#nName").focus();
   }
